@@ -2,6 +2,7 @@ package com.example.delivery.review.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -11,6 +12,7 @@ import com.example.delivery.order.domain.entity.OrderStatus;
 import com.example.delivery.order.domain.repository.OrderRepository;
 import com.example.delivery.review.domain.repository.ReviewRepository;
 import com.example.delivery.review.presentation.dto.request.ReqCreateReviewDto;
+import com.example.delivery.review.presentation.dto.request.ReqUpdateReviewDto;
 import com.example.delivery.store.domain.entity.StoreEntity;
 import com.example.delivery.store.domain.repository.StoreRepository;
 import com.example.delivery.user.domain.entity.UserRole;
@@ -143,6 +145,43 @@ class ReviewIntegrationTest extends IntegrationTestSupport {
                             .contentType(APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(req)))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("리뷰 수정")
+    class UpdateReview {
+
+        @Test
+        @DisplayName("본인 리뷰 수정 → DB 반영, store averageRating 재계산 확인")
+        void success_dbVerified() throws Exception {
+            // given — 리뷰 생성 후 수정
+            OrderEntity order = seedCompletedOrder(CUSTOMER_USERNAME);
+            ReqCreateReviewDto createReq = new ReqCreateReviewDto(5, "맛있었어요!");
+
+            String createBody = mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(createReq)))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+
+            UUID reviewId = UUID.fromString(
+                    objectMapper.readTree(createBody).path("data").path("reviewId").asText());
+
+            ReqUpdateReviewDto updateReq = new ReqUpdateReviewDto(3, "다시 생각해보니 보통이었어요");
+
+            // when
+            mockMvc.perform(patch("/api/v1/reviews/{reviewId}", reviewId)
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(updateReq)))
+                    .andExpect(status().isOk());
+
+            // then — DB 교차 검증
+            assertThat(reviewRepository.findById(reviewId).orElseThrow().getRating()).isEqualTo(3);
+            assertThat(storeRepository.findById(store.getId()).orElseThrow().getAverageRating())
+                    .isEqualByComparingTo("3.0");
         }
     }
 }
