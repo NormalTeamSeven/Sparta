@@ -2,6 +2,7 @@ package com.example.delivery.review.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,6 +17,7 @@ import com.example.delivery.review.presentation.dto.request.ReqUpdateReviewDto;
 import com.example.delivery.store.domain.entity.StoreEntity;
 import com.example.delivery.store.domain.repository.StoreRepository;
 import com.example.delivery.user.domain.entity.UserRole;
+import jakarta.persistence.EntityManager;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +39,7 @@ class ReviewIntegrationTest extends IntegrationTestSupport {
     @Autowired OrderRepository orderRepository;
     @Autowired StoreRepository storeRepository;
     @Autowired ReviewRepository reviewRepository;
+    @Autowired EntityManager entityManager;
 
     private StoreEntity store;
     private String customerToken;
@@ -240,6 +243,64 @@ class ReviewIntegrationTest extends IntegrationTestSupport {
                             .contentType(APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(new ReqUpdateReviewDto(1, "수정"))))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("리뷰 삭제")
+    class DeleteReview {
+
+        private UUID createReview(String token, UUID orderId) throws Exception {
+            String body = mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", orderId)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqCreateReviewDto(5, "맛있었어요!"))))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            return UUID.fromString(objectMapper.readTree(body).path("data").path("reviewId").asText());
+        }
+
+        @Test
+        @DisplayName("본인 리뷰 삭제 → soft delete 반영, store averageRating 0.0 재계산")
+        void success_customer_dbVerified() throws Exception {
+            // given
+            OrderEntity order = seedCompletedOrder(CUSTOMER_USERNAME);
+            UUID reviewId = createReview(customerToken, order.getOrderId());
+
+            // when
+            mockMvc.perform(delete("/api/v1/reviews/{reviewId}", reviewId)
+                            .header("Authorization", "Bearer " + customerToken))
+                    .andExpect(status().isNoContent());
+
+            // then — 1차 캐시 비우고 DB 조회
+            entityManager.flush();
+            entityManager.clear();
+
+            assertThat(reviewRepository.findById(reviewId)).isEmpty();  // soft delete → SQLRestriction 으로 조회 불가
+            assertThat(storeRepository.findById(store.getId()).orElseThrow().getAverageRating())
+                    .isEqualByComparingTo("0.0");
+        }
+
+        @Test
+        @DisplayName("MASTER 권한으로 타인 리뷰 삭제 → soft delete 반영")
+        void success_master_dbVerified() throws Exception {
+            // given
+            OrderEntity order = seedCompletedOrder(CUSTOMER_USERNAME);
+            UUID reviewId = createReview(customerToken, order.getOrderId());
+
+            seedUser("master01", UserRole.MASTER);
+            String masterToken = login("master01", DEFAULT_PASSWORD);
+
+            // when
+            mockMvc.perform(delete("/api/v1/reviews/{reviewId}", reviewId)
+                            .header("Authorization", "Bearer " + masterToken))
+                    .andExpect(status().isNoContent());
+
+            // then — 1차 캐시 비우고 DB 조회
+            entityManager.flush();
+            entityManager.clear();
+
+            assertThat(reviewRepository.findById(reviewId)).isEmpty();
         }
     }
 }
