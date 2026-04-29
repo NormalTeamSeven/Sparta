@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -38,6 +39,7 @@ public class CategoryControllerV1 {
     })
     @PostMapping
     @PreAuthorize("hasAnyRole('MANAGER', 'MASTER')")
+    @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ResCreateCategoryDto> createCategory(@Valid @RequestBody ReqCreateCategoryDto request) {
         return ApiResponse.created(categoryService.createCategory(request));
     }
