@@ -1,5 +1,6 @@
 package com.example.delivery.store.infrastructure.repository;
 
+import com.example.delivery.area.domain.entity.QAreaEntity;
 import com.example.delivery.store.domain.entity.QStoreEntity;
 import com.example.delivery.store.domain.entity.StoreEntity;
 import com.querydsl.core.types.Order;
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class StoreRepositoryCustomImpl implements StoreRepositoryCustom {
 
     private static final QStoreEntity STORE = QStoreEntity.storeEntity;
+    private static final QAreaEntity AREA = QAreaEntity.areaEntity;
 
     private final JPAQueryFactory queryFactory;
 
@@ -31,8 +33,9 @@ public class StoreRepositoryCustomImpl implements StoreRepositoryCustom {
     public Page<StoreEntity> search(String keyword, UUID categoryId, UUID areaId, Pageable pageable) {
 
         BooleanExpression[] conditions = new BooleanExpression[]{
-                notDeleted(),
-                notHidden(),
+                storeNotDeleted(),
+                storeNotHidden(),
+                areaIsActive(),
                 nameContainsIgnoreCase(keyword),
                 categoryIdEq(categoryId),
                 areaIdEq(areaId)
@@ -40,6 +43,7 @@ public class StoreRepositoryCustomImpl implements StoreRepositoryCustom {
 
         List<StoreEntity> content = queryFactory
                 .selectFrom(STORE)
+                .join(AREA).on(STORE.areaId.eq(AREA.id))
                 .where(conditions)
                 .orderBy(toOrderSpecifiers(pageable.getSort()))
                 .offset(pageable.getOffset())
@@ -49,6 +53,7 @@ public class StoreRepositoryCustomImpl implements StoreRepositoryCustom {
         Long totalCount = queryFactory
                 .select(STORE.count())
                 .from(STORE)
+                .join(AREA).on(STORE.areaId.eq(AREA.id))
                 .where(conditions)
                 .fetchOne();
 
@@ -60,12 +65,16 @@ public class StoreRepositoryCustomImpl implements StoreRepositoryCustom {
     /**
      * 조건 조립 (null 이면 조건 자체를 제외)
      */
-    private BooleanExpression notDeleted() {
+    private BooleanExpression storeNotDeleted() {
         return STORE.deletedAt.isNull();
     }
 
-    private BooleanExpression notHidden() {
+    private BooleanExpression storeNotHidden() {
         return STORE.isHidden.isFalse();
+    }
+
+    private BooleanExpression areaIsActive() {
+        return AREA.isActive.isTrue();
     }
 
     private BooleanExpression nameContainsIgnoreCase(String keyword) {
