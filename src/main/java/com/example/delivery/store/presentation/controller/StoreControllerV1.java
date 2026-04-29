@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -42,6 +43,7 @@ public class StoreControllerV1 {
     })
     @PostMapping
     @PreAuthorize("hasRole('OWNER')")
+    @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ResCreateStoreDto> createStore(
             @Valid @RequestBody ReqCreateStoreDto request,
             @AuthenticationPrincipal UserPrincipal userPrincipal
