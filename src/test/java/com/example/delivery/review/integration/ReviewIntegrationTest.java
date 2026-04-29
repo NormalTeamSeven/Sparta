@@ -3,8 +3,10 @@ package com.example.delivery.review.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.delivery.global.test.IntegrationTestSupport;
@@ -331,6 +333,69 @@ class ReviewIntegrationTest extends IntegrationTestSupport {
             mockMvc.perform(delete("/api/v1/reviews/{reviewId}", reviewId)
                             .header("Authorization", "Bearer " + ownerToken))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("리뷰 조회")
+    class GetReview {
+
+        @Test
+        @DisplayName("가게 리뷰 목록 조회 (필터 없음) → 전체 리뷰 반환")
+        void getReviewsByStore_noFilter() throws Exception {
+            // given — 평점이 다른 리뷰 2개 생성
+            seedUser("other01", UserRole.CUSTOMER);
+            String otherToken = login("other01", DEFAULT_PASSWORD);
+
+            OrderEntity order1 = seedCompletedOrder(CUSTOMER_USERNAME);
+            OrderEntity order2 = seedCompletedOrder("other01");
+
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order1.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqCreateReviewDto(5, "맛있었어요!"))))
+                    .andExpect(status().isCreated());
+
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order2.getOrderId())
+                            .header("Authorization", "Bearer " + otherToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqCreateReviewDto(3, "보통이었어요"))))
+                    .andExpect(status().isCreated());
+
+            // when / then
+            mockMvc.perform(get("/api/v1/stores/{storeId}/reviews", store.getId()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalElements").value(2));
+        }
+
+        @Test
+        @DisplayName("가게 리뷰 목록 조회 (평점 5점 필터) → 해당 평점 리뷰만 반환")
+        void getReviewsByStore_ratingFilter() throws Exception {
+            // given — 평점 5점, 3점 리뷰 각 1개 생성
+            seedUser("other01", UserRole.CUSTOMER);
+            String otherToken = login("other01", DEFAULT_PASSWORD);
+
+            OrderEntity order1 = seedCompletedOrder(CUSTOMER_USERNAME);
+            OrderEntity order2 = seedCompletedOrder("other01");
+
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order1.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqCreateReviewDto(5, "맛있었어요!"))))
+                    .andExpect(status().isCreated());
+
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order2.getOrderId())
+                            .header("Authorization", "Bearer " + otherToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqCreateReviewDto(3, "보통이었어요"))))
+                    .andExpect(status().isCreated());
+
+            // when / then — 5점 필터 시 1개만 반환
+            mockMvc.perform(get("/api/v1/stores/{storeId}/reviews", store.getId())
+                            .param("rating", "5"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.content[0].rating").value(5));
         }
     }
 }
