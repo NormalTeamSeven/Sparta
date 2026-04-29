@@ -183,5 +183,63 @@ class ReviewIntegrationTest extends IntegrationTestSupport {
             assertThat(storeRepository.findById(store.getId()).orElseThrow().getAverageRating())
                     .isEqualByComparingTo("3.0");
         }
+
+        @Test
+        @DisplayName("타인 리뷰 수정 시도 (CUSTOMER) → 403")
+        void fail_notMyReview() throws Exception {
+            // given — other01 이 작성한 리뷰
+            seedUser("other01", UserRole.CUSTOMER);
+            OrderEntity order = seedCompletedOrder("other01");
+            String otherToken = login("other01", DEFAULT_PASSWORD);
+
+            String createBody = mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order.getOrderId())
+                            .header("Authorization", "Bearer " + otherToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqCreateReviewDto(5, "맛있었어요!"))))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+
+            UUID reviewId = UUID.fromString(
+                    objectMapper.readTree(createBody).path("data").path("reviewId").asText());
+
+            // when — customer01 이 타인 리뷰 수정 시도
+            mockMvc.perform(patch("/api/v1/reviews/{reviewId}", reviewId)
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqUpdateReviewDto(1, "별로였어요"))))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("OWNER 권한으로 리뷰 수정 시도 → 403")
+        void fail_ownerForbidden() throws Exception {
+            // given
+            seedUser("owner01", UserRole.OWNER);
+            String ownerToken = login("owner01", DEFAULT_PASSWORD);
+            UUID randomReviewId = UUID.randomUUID();
+
+            // when / then
+            mockMvc.perform(patch("/api/v1/reviews/{reviewId}", randomReviewId)
+                            .header("Authorization", "Bearer " + ownerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqUpdateReviewDto(1, "수정"))))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("MANAGER 권한으로 리뷰 수정 시도 → 403")
+        void fail_managerForbidden() throws Exception {
+            // given
+            seedUser("manager01", UserRole.MANAGER);
+            String managerToken = login("manager01", DEFAULT_PASSWORD);
+            UUID randomReviewId = UUID.randomUUID();
+
+            // when / then
+            mockMvc.perform(patch("/api/v1/reviews/{reviewId}", randomReviewId)
+                            .header("Authorization", "Bearer " + managerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ReqUpdateReviewDto(1, "수정"))))
+                    .andExpect(status().isForbidden());
+        }
     }
 }
