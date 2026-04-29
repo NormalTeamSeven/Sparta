@@ -144,78 +144,65 @@ autonumber
 actor Owner as 사장님 (OWNER)
 participant AC as AiControllerV1
 participant S as AiServiceV1
-participant Cache as Local Cache (Caffeine)
-participant CB as CircuitBreaker (Resilience4j)
 participant GC as GeminiClient
 participant Ext as Google Gemini API
-participant Event as Spring ApplicationEvent
 participant LR as AiRequestLogRepository
 participant MR as MenuRepository
 participant DB as PostgreSQL
 
-    Note over Owner, DB: [Step 1] 메뉴 설명 AI 생성 및 임시 저장 (동기/방어적 생성)
-    Owner ->> AC: POST /api/v1/menus/ai-description<br>(menuName="마늘 간장 치킨")
-    Note right of AC: [방어 1] @Valid (금지어 및 형식 검증)
+    Note over Owner, DB: [Step 1] 메뉴 설명 AI 생성 및 임시 저장 (GeneratedAndLog)
+    Owner ->> AC: POST /api/v1/menus/ai-description<br>(menuName)
     
-    AC ->> S: generatedAndLogDescription()
+    AC ->> S: generatedAndLogDescription(menuName, userId)
     
-    Note right of S: [최적화 1] Caffeine 기반 로컬 캐시로 호출 횟수 제한 (Rate Limit)
-    S ->> Cache: get(key: "rate_limit:userId")
-    Cache -->> S: count
+    S ->> GC: generateMenuDescription(menuName)
+    Note right of GC: 프롬프트 구성 (System Instruction + Few-shot)
     
-    alt count >= 2 (제한 초과)
-        S -->> AC: AiLimitExceededException
-        AC -->> Owner: 429 Too Many Requests
-    else count < 2 (허용 범위)
-        S ->> Cache: increment()
-        
-        Note right of CB: [방어 2] Resilience4j를 통한 빠른 실패 (Fail-fast)<br/>및 Timeout 관리
-        S ->> CB: AI API 호출 위임
-        
-        alt 서킷 OPEN 또는 Timeout 발생
-            CB -->> S: CallNotPermitted / TimeoutException
-            S -->> AC: "직접 입력해주세요" (Fallback 반환)
-            AC -->> Owner: 200 OK (Fallback JSON)
-        else 정상 호출 진행
-            CB ->> GC: generateMenuDescription(menuName)
-            Note right of GC: System Instruction, Few-shot,<br/>Safety Settings 캡슐화
-            GC ->> Ext: POST /v1beta/models/gemini-1.5-flash
-            Ext -->> GC: 200 OK (응답 텍스트 반환)
-            
-            GC ->> GC: 사후 필터링 (정규식 검사 및 함정 질문 방어)
-            GC -->> S: 최종 생성 텍스트 반환
-            
-            S ->> LR: save(AiRequestLogEntity)<br>상태: isApplied = false
-            LR -->> S: 저장된 로그 (aiLogId 포함)
-            
-            Note right of S: [최적화 2] 이벤트 발행을 통한 로깅/통계 분리
-            S ->> Event: publishEvent(AiRequestLogEvent)
-            Event -) DB: [비동기] 데이터 분석용 로그 추가 기록
-
-            S -->> AC: aiLogId, 원본 텍스트 반환
-            AC -->> Owner: 200 OK (ResAiDescriptionDto)
+    Note right of GC: [방어 로직] try-catch 기반 장애 격리
+    GC ->> Ext: POST /v1beta/models/gemini (API 호출)
+    
+    alt API 통신 성공
+        Ext -->> GC: 200 OK (응답 텍스트)
+        alt 응답에 "정확히 입력해주세요" 포함 (사후 필터링)
+            GC -->> S: "직접 입력해주세요" (Fallback 반환)
+        else 정상 결과
+            GC -->> S: 생성된 설명 텍스트 반환
         end
+    else 통신 에러/타임아웃 (catch Exception)
+        GC -->> S: "직접 입력해주세요" (Fallback 반환)
     end
-
-    Note over Owner, DB: [Step 2] 사장님 검토 후 실제 메뉴에 반영 (트랜잭션 확정)
-    Owner ->> AC: PATCH /api/v1/menus/{menuId}/ai-description/apply<br>(aiLogId, 수정된 description)
-    AC ->> S: applyAiDescription()
     
-    Note over S, DB: 트랜잭션 시작 (@Transactional)
+    S ->> LR: save(AiRequestLogEntity)<br>상태: isApplied = false
+    LR -->> S: 저장된 로그 (aiLogId 포함)
+    
+    S -->> AC: aiLogId, 생성된 텍스트 반환
+    AC -->> Owner: 200 OK (aiLogId, description)
+
+    Note over Owner, DB: [Step 2] 사장님 검토 후 최종 반영 (Apply)
+    Owner ->> AC: PATCH /api/v1/menus/{menuId}/ai-description/apply<br>(aiLogId, description)
+    AC ->> S: applyAiDescription(menuId, request)
+    
+    Note over S, DB: @Transactional 시작
     S ->> LR: findById(aiLogId)
     LR -->> S: AiRequestLogEntity
-    
-    Note right of S: [방어 3] 중복 반영 검증 (isApplied == true 시 예외)
     
     S ->> MR: findById(menuId)
     MR -->> S: MenuEntity
     
-    S ->> S: 텍스트 결정 로직 (사장님 수정본 vs AI 원본)
-    S ->> S: MenuEntity 데이터 업데이트 (aiDescription = true)
-    S ->> S: AiRequestLogEntity 상태 변경 (isApplied = true)
+    Note right of S: [방어 로직] 중복 반영 검증
+    alt isApplied == true
+        S -->> AC: BusinessException (ALREADY_APPLIED)
+        AC -->> Owner: 400 Bad Request
+    end
     
-    Note over S, DB: 트랜잭션 커밋 (Dirty Checking으로 인한 DB Update)
-    S -->> AC: 반영 완료
+    Note right of S: [비즈니스 로직] 텍스트 결정<br>(사장님 수정본이 있으면 우선 반영)
+    S ->> S: String finalDesc = (request.desc != null) ? userDesc : aiDesc
+    
+    S ->> S: MenuEntity.updateProduct() 반영
+    S ->> S: AiRequestLogEntity.assignToMenu() <br>(isApplied = true 변경)
+    
+    Note over S, DB: @Transactional 종료 (DB Update 반영)
+    S -->> AC: 성공 응답
     AC -->> Owner: 200 OK ("AI 메뉴 설명 적용 완료")
 ```
 
