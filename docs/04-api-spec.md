@@ -119,15 +119,16 @@
 
 ### 2.6 Menu `/api/v1/...`
 
-| Method | Path                      | 설명            | 권한                       |
-|--------|---------------------------|---------------|--------------------------|
-| POST   | `/stores/{storeId}/menus` | 메뉴 등록 (AI 옵션) | OWNER(본인)                |
-| GET    | `/stores/{storeId}/menus` | 가게 메뉴 목록      | ALL                      |
-| GET    | `/menus/{menuId}`         | 메뉴 상세         | ALL                      |
-| PATCH  | `/menus/{menuId}`         | 수정            | OWNER(본인)/MANAGER/MASTER |
-| DELETE | `/menus/{menuId}`         | Soft Delete   | OWNER(본인)/MASTER         |
-| PATCH  | `/menus/{menuId}/hide`    | 숨김 토글         | OWNER(본인)/MANAGER/MASTER |
-| PATCH  | `/menus/{menuId}/restore` | 삭제된 메뉴 복구      | OWNER(본인)/MANAGER/MASTER |
+| Method | Path                         | 설명            | 권한                       |
+|--------|------------------------------|---------------|--------------------------|
+| POST   | `/stores/{storeId}/menus`    | 메뉴 등록 (AI 옵션) | OWNER(본인)                |
+| GET    | `/stores/{storeId}/menus`    | 가게 메뉴 목록      | ALL                      |
+| GET    | `/menus/{menuId}`            | 메뉴 상세         | ALL                      |
+| PATCH  | `/menus/{menuId}`            | 수정            | OWNER(본인)/MANAGER/MASTER |
+| DELETE | `/menus/{menuId}`            | Soft Delete   | OWNER(본인)/MASTER         |
+| PATCH  | `/menus/{menuId}/visibility` | 숨김 토글         | OWNER(본인)/MANAGER/MASTER |
+| PATCH  | `/menus/{menuId}/sold-out`   | 메뉴 품절 토글      | OWNER(본인)/MANAGER/MASTER |
+| PATCH  | `/menus/{menuId}/restore`    | 삭제된 메뉴 복구     | OWNER(본인)/MANAGER/MASTER |
 
 > [메뉴 노출 기준 (Query DSL 적용)]
 > 목록 조회 (`GET /stores/{storeOd}/menus`) 및 상세 조회 (`GET /menus/{menuId}`) 시 요청자의 권한에 따라 노출되는 데이터가 다릅니다.
