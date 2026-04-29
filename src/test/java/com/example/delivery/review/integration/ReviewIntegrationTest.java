@@ -88,5 +88,61 @@ class ReviewIntegrationTest extends IntegrationTestSupport {
             assertThat(storeRepository.findById(store.getId()).orElseThrow().getAverageRating())
                     .isEqualByComparingTo("5.0");
         }
+
+        @Test
+        @DisplayName("주문이 COMPLETED 아닌 상태 → 400")
+        void fail_orderNotCompleted() throws Exception {
+            // given — PENDING 상태 주문 (Order 기본값)
+            OrderEntity order = orderRepository.save(OrderEntity.builder()
+                    .customerId(CUSTOMER_USERNAME)
+                    .storeId(store.getId())
+                    .totalPrice(15000)
+                    .build());
+            ReqCreateReviewDto req = new ReqCreateReviewDto(5, "맛있었어요!");
+
+            // when / then
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("동일 주문에 중복 리뷰 생성 → 409")
+        void fail_duplicateReview() throws Exception {
+            // given — 이미 리뷰가 존재하는 주문
+            OrderEntity order = seedCompletedOrder(CUSTOMER_USERNAME);
+            ReqCreateReviewDto req = new ReqCreateReviewDto(5, "맛있었어요!");
+
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isCreated());
+
+            // when — 같은 주문에 리뷰 재시도
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @DisplayName("본인 주문 아닌 경우 → 403")
+        void fail_notMyOrder() throws Exception {
+            // given — 다른 유저 주문
+            seedUser("other01", UserRole.CUSTOMER);
+            OrderEntity order = seedCompletedOrder("other01");
+            ReqCreateReviewDto req = new ReqCreateReviewDto(5, "맛있었어요!");
+
+            // when / then
+            mockMvc.perform(post("/api/v1/orders/{orderId}/reviews", order.getOrderId())
+                            .header("Authorization", "Bearer " + customerToken)
+                            .contentType(APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isForbidden());
+        }
     }
 }
