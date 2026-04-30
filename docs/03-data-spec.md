@@ -223,7 +223,8 @@ erDiagram
 | review_id   | UUID        | PK                             |         |
 | order_id    | UUID        | FK → p_order, UNIQUE, NOT NULL | 1주문 1리뷰 |
 | store_id    | UUID        | FK → p_store, NOT NULL         | 역정규화    |
-| customer_id | VARCHAR(10) | FK → p_user.username, NOT NULL |         |
+| customer_id       | VARCHAR(10) | FK → p_user.username, NOT NULL |       |
+| customer_nickname | VARCHAR(50) | NOT NULL                       | 작성 시점 닉네임 |
 | rating      | INTEGER     | NOT NULL, CHECK 1~5            |         |
 | content     | TEXT        |                                |         |
 | + Audit 6개  |             |                                |         |
